@@ -1,12 +1,13 @@
-import os
 import streamlit as st
+import cv2
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 from ultralytics import YOLO
+import os
 import requests
 
 # Define model URL (Replace with your actual Hugging Face or Google Drive link)
-MODEL_URL = "https://huggingface.co/tusharb007/model/resolve/main/model.pt"
+MODEL_URL = "https://huggingface.co/tusharb007/model/tree/main/model.pt"
 MODEL_PATH = "model.pt"
 
 # Download the model if it doesn't exist
@@ -39,13 +40,20 @@ NOMENCLATURE = {
     "123": "ID606124", "130": "IE303129"
 }
 
+COLOR_MAP = {part: (np.random.randint(0, 255), np.random.randint(0, 255), np.random.randint(0, 255)) for part in NOMENCLATURE.keys()}
+
 EXPECTED = {
     "left": ["43", "64", "130", "41", "25", "108", "35", "117", "102", "123", "09"],
     "right": ["74", "34", "35", "122", "08", "47", "118", "121", "120", "40", "64", "130", "07"]
 }
 
+EXPECTED = {side: [str(int(p)).zfill(2) for p in parts] for side, parts in EXPECTED.items()}
+
 def normalize_part_number(part):
     return f"{int(part):02d}" if part.isdigit() else part
+
+def preprocess_image(image):
+    return cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
 
 def detect_side(detected_classes):
     detected_classes = [normalize_part_number(p) for p in detected_classes]
@@ -54,46 +62,50 @@ def detect_side(detected_classes):
     right_score = sum(cls in right_markers for cls in detected_classes)
     return "LEFT" if left_score > right_score else "RIGHT"
 
-def draw_bounding_boxes(image, results):
-    """ Draws bounding boxes using PIL instead of OpenCV """
-    draw = ImageDraw.Draw(image)
-    detected = []
-    
+def detect_objects(model, image):
+    results, detected = model(image), []
     for result in results:
         for box in result.boxes:
-            cls = normalize_part_number(result.names[int(box.cls.item())])
+            cls = normalize_part_number(model.names[int(box.cls.item())])
             x1, y1, x2, y2 = map(int, box.xyxy[0])
+            color = COLOR_MAP.get(cls, (0, 255, 0))
+            cv2.rectangle(image, (x1, y1), (x2, y2), color, 3)
+            cv2.putText(image, f"{cls} ({NOMENCLATURE.get(cls, 'Unknown')})", (x1, y1 - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2, cv2.LINE_AA)
             detected.append(cls)
-
-            # Generate random colors for boxes
-            color = tuple(np.random.randint(100, 255, size=3).tolist())
-
-            # Draw rectangle
-            draw.rectangle([x1, y1, x2, y2], outline=color, width=3)
-
-            # Label text
-            label = f"{cls} ({NOMENCLATURE.get(cls, 'Unknown')})"
-            draw.text((x1, y1 - 10), label, fill=color)
-
     return image, list(set(detected))
+
+def show_model_metrics():
+    st.title("Model Metrics and Training Graphs")
+    st.write("This page provides an overview of key model evaluation metrics and training performance graphs.")
+    
+    graph_names = [
+        "Precision-Recall Curve", "Recall-Confidence Curve", "F1-Confidence Curve", "Confusion Matrix",
+        "Confusion Matrix (Normalized)", "Instance Distribution and Bounding Box Overlays",
+        "Pairwise Scatter Plots of Bounding Box Coordinates", "Training and Validation Loss Curves"
+    ]
+    
+    col1, col2 = st.columns(2)
+    for i, graph in enumerate(graph_names):
+        with (col1 if i % 2 == 0 else col2):
+            st.image(f"./graphs/{graph.replace(' ', ' ')}.png", caption=graph, width=400, use_container_width=True)
 
 def show_chassis_inspector():
     st.title("Automotive Chassis Component Inspector")
     uploaded_file = st.file_uploader("Upload Chassis Image", type=["jpg", "png", "jpeg"])
 
     if uploaded_file:
-        model = load_model()
-        img = Image.open(uploaded_file).convert("RGB")
-
+        model, img = load_model(), Image.open(uploaded_file)
         col1, col2 = st.columns([1, 1])
+        
         with col1:
             st.subheader("Original Image")
             st.image(img, width=400, use_container_width=True)
         
-        results = model(np.array(img))
-        processed_img, detected = draw_bounding_boxes(img, results)
+        img_cv = preprocess_image(img)
+        processed_img, detected = detect_objects(model, img_cv)
         detected = [normalize_part_number(p) for p in detected]
-
+        
         if len(detected) < 2:
             st.error("Invalid image! Please upload a valid chassis image.")
         else:
@@ -107,7 +119,7 @@ def show_chassis_inspector():
                     st.image(reference_image, width=400, use_container_width=True)
             
             st.subheader("Processed Image")
-            st.image(processed_img, use_container_width=True)
+            st.image(cv2.cvtColor(processed_img, cv2.COLOR_BGR2RGB), use_container_width=True)
             st.markdown(f"""<h3 style='text-align:center; font-weight:bold;'>IDENTIFIED CHASSIS SIDE: {chassis_side}</h3>""", unsafe_allow_html=True)
             
             col3, col4 = st.columns(2)
@@ -131,10 +143,12 @@ def show_chassis_inspector():
 def main():
     st.set_page_config(page_title="Chassis Inspector", layout="wide", page_icon="🔧")
     with st.sidebar:
-        page = st.radio("Select Page", ["Chassis Inspector"])
+        page = st.radio("Select Page", ["Chassis Inspector", "Model Metrics"])
     
     if page == "Chassis Inspector":
         show_chassis_inspector()
+    elif page == "Model Metrics":
+        show_model_metrics()
 
 if __name__ == "__main__":
     main()
