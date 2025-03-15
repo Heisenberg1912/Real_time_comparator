@@ -1,10 +1,9 @@
 streamlit
-opencv-python
+opencv-python-headless
 numpy
 pillow
 ultralytics
 torch
 torchvision
 torchaudio
-cv2
-YOLO
+requests
