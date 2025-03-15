@@ -4,13 +4,40 @@ import numpy as np
 from PIL import Image
 from ultralytics import YOLO
 import os
+import requests
 
-# Corrected part nomenclature mapping
+# Define model URL (Replace with your actual Hugging Face or Google Drive link)
+MODEL_URL = "https://huggingface.co/tusharb007/model/tree/main/model.pt"
+MODEL_PATH = "model.pt"
+
+# Download the model if it doesn't exist
+def download_model():
+    if not os.path.exists(MODEL_PATH):
+        st.info("Downloading model... Please wait ⏳")
+        response = requests.get(MODEL_URL, stream=True)
+        if response.status_code == 200:
+            with open(MODEL_PATH, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            st.success("Model downloaded successfully! ✅")
+        else:
+            st.error("Failed to download model. Check the URL.")
+
+# Run model download before loading YOLO
+download_model()
+
+# Load YOLO model
+def load_model():
+    return YOLO(MODEL_PATH)
+
+# Part nomenclature mapping
 NOMENCLATURE = {
-    "07": "IA348549", "08": "IA349043", "09": "IA353945", "25": "IC318330", "34": "IC379896", "35": "IC382160", "40": "IC391070",
-    "41": "IC391071", "42": "IC392312", "43": "IC392313", "47": "IC399170", "64": "IC411673", "74": "IC518851", "102": "IC800958",
-    "108": "IC801489", "117": "ID366902", "118": "ID369862", "120": "ID602785", "121": "ID602786", "122": "ID603820", "123": "ID606124",
-    "130": "IE303129"
+    "07": "IA348549", "08": "IA349043", "09": "IA353945", "25": "IC318330",
+    "34": "IC379896", "35": "IC382160", "40": "IC391070", "41": "IC391071",
+    "42": "IC392312", "43": "IC392313", "47": "IC399170", "64": "IC411673",
+    "74": "IC518851", "102": "IC800958", "108": "IC801489", "117": "ID366902",
+    "118": "ID369862", "120": "ID602785", "121": "ID602786", "122": "ID603820",
+    "123": "ID606124", "130": "IE303129"
 }
 
 COLOR_MAP = {part: (np.random.randint(0, 255), np.random.randint(0, 255), np.random.randint(0, 255)) for part in NOMENCLATURE.keys()}
@@ -24,9 +51,6 @@ EXPECTED = {side: [str(int(p)).zfill(2) for p in parts] for side, parts in EXPEC
 
 def normalize_part_number(part):
     return f"{int(part):02d}" if part.isdigit() else part
-
-def load_model():
-    return YOLO("./model.pt")
 
 def preprocess_image(image):
     return cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
@@ -53,23 +77,21 @@ def detect_objects(model, image):
 
 def show_model_metrics():
     st.title("Model Metrics and Training Graphs")
-    st.write("This page provides an overview of key model evaluation metrics and training performance graphs. These visualizations help in understanding the behavior and effectiveness of the model.")
-    st.write("The model demonstrated a high recall (R) of 92.7%, indicating that it successfully detects most of the relevant objects in the dataset. Additionally, it achieved a mean Average Precision (mAP) of 95.4% at 50% IoU (mAP50) and 62.9% across multiple IoU thresholds (mAP50-95), showcasing strong detection performance.")
+    st.write("This page provides an overview of key model evaluation metrics and training performance graphs.")
     
     graph_names = [
-        "Precision-Recall Curve", "Recall-Confidence Curve", "F1-Confidence Curve","Confusion Matrix",
+        "Precision-Recall Curve", "Recall-Confidence Curve", "F1-Confidence Curve", "Confusion Matrix",
         "Confusion Matrix (Normalized)", "Instance Distribution and Bounding Box Overlays",
-        "Pairwise Scatter Plots of Bounding Box Coordinates","Training and Validation Loss Curves"
+        "Pairwise Scatter Plots of Bounding Box Coordinates", "Training and Validation Loss Curves"
     ]
     
     col1, col2 = st.columns(2)
     for i, graph in enumerate(graph_names):
         with (col1 if i % 2 == 0 else col2):
-            st.image(f"./graphs/{graph.replace(' ', ' ')}.png", caption=graph,width=400, use_container_width=True)
+            st.image(f"./graphs/{graph.replace(' ', ' ')}.png", caption=graph, width=400, use_container_width=True)
 
 def show_chassis_inspector():
     st.title("Automotive Chassis Component Inspector")
-    st.markdown("<p style='font-size:18px; font-weight:bold;'>FRAME PHANTOM PRO6048T 6785 WB CBC PRM BS6 (FR6319N)</p>", unsafe_allow_html=True)
     uploaded_file = st.file_uploader("Upload Chassis Image", type=["jpg", "png", "jpeg"])
 
     if uploaded_file:
@@ -90,13 +112,6 @@ def show_chassis_inspector():
             chassis_side = detect_side(detected)
             expected, missing = EXPECTED[chassis_side.lower()], list(set(EXPECTED[chassis_side.lower()]) - set(detected))
 
-            text_x, text_y = 20, 50
-            for i, miss in enumerate(missing):
-                (w, h), _ = cv2.getTextSize(f"Missing: {miss} ({NOMENCLATURE.get(miss, 'Unknown')})", cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)
-                cv2.rectangle(processed_img, (text_x - 5, text_y + i * 30 - 20), (text_x + w + 5, text_y + i * 30 + 5), (255, 255, 255), -1)
-                cv2.putText(processed_img, f"Missing: {miss} ({NOMENCLATURE.get(miss, 'Unknown')})", (text_x, text_y + i * 30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2, cv2.LINE_AA)
-            
             reference_image = f"./reference images/{chassis_side.lower()}_reference.jpg"
             if os.path.exists(reference_image):
                 with col2:
@@ -131,28 +146,8 @@ def main():
         page = st.radio("Select Page", ["Chassis Inspector", "Model Metrics"])
     
     if page == "Chassis Inspector":
-        with st.sidebar:
-            st.title("Chassis Inspector")
-            st.markdown("""
-        ## 🛠️ About
-        - Automatic side detection
-        - Missing parts identification
-        - Detailed component nomenclature
-        
-        ## 📸 How to Use
-        1. Upload a chassis image
-        2. View results
-        """)
         show_chassis_inspector()
     elif page == "Model Metrics":
-        with st.sidebar:
-            st.title("Chassis Inspector")
-            st.markdown("""
-        ## 🛠️ About
-        - Training Progress Visualizations
-        - Performance Evaluation Charts
-        - Data and Prediction Insights
-        """)
         show_model_metrics()
 
 if __name__ == "__main__":
