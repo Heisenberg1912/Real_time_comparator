@@ -1,13 +1,16 @@
+import os
 import streamlit as st
 import cv2
 import numpy as np
 from PIL import Image
 from ultralytics import YOLO
-import os
 import requests
 
+# Ensure that set_page_config is the first Streamlit command executed
+st.set_page_config(page_title="Chassis Inspector", layout="wide", page_icon="🔧")
+
 # Define model URL (Replace with your actual Hugging Face or Google Drive link)
-MODEL_URL = "https://huggingface.co/tusharb007/model/tree/main/model.pt"
+MODEL_URL = "https://huggingface.co/tusharb007/model/resolve/main/model.pt"
 MODEL_PATH = "model.pt"
 
 # Download the model if it doesn't exist
@@ -23,9 +26,6 @@ def download_model():
         else:
             st.error("Failed to download model. Check the URL.")
 
-# Run model download before loading YOLO
-download_model()
-
 # Load YOLO model
 def load_model():
     return YOLO(MODEL_PATH)
@@ -40,14 +40,10 @@ NOMENCLATURE = {
     "123": "ID606124", "130": "IE303129"
 }
 
-COLOR_MAP = {part: (np.random.randint(0, 255), np.random.randint(0, 255), np.random.randint(0, 255)) for part in NOMENCLATURE.keys()}
-
 EXPECTED = {
     "left": ["43", "64", "130", "41", "25", "108", "35", "117", "102", "123", "09"],
     "right": ["74", "34", "35", "122", "08", "47", "118", "121", "120", "40", "64", "130", "07"]
 }
-
-EXPECTED = {side: [str(int(p)).zfill(2) for p in parts] for side, parts in EXPECTED.items()}
 
 def normalize_part_number(part):
     return f"{int(part):02d}" if part.isdigit() else part
@@ -68,7 +64,7 @@ def detect_objects(model, image):
         for box in result.boxes:
             cls = normalize_part_number(model.names[int(box.cls.item())])
             x1, y1, x2, y2 = map(int, box.xyxy[0])
-            color = COLOR_MAP.get(cls, (0, 255, 0))
+            color = tuple(np.random.randint(0, 255, size=3).tolist())
             cv2.rectangle(image, (x1, y1), (x2, y2), color, 3)
             cv2.putText(image, f"{cls} ({NOMENCLATURE.get(cls, 'Unknown')})", (x1, y1 - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2, cv2.LINE_AA)
@@ -88,7 +84,7 @@ def show_model_metrics():
     col1, col2 = st.columns(2)
     for i, graph in enumerate(graph_names):
         with (col1 if i % 2 == 0 else col2):
-            st.image(f"./graphs/{graph.replace(' ', ' ')}.png", caption=graph, width=400, use_container_width=True)
+            st.image(f"./graphs/{graph}.png", caption=graph, width=400, use_container_width=True)
 
 def show_chassis_inspector():
     st.title("Automotive Chassis Component Inspector")
@@ -141,9 +137,11 @@ def show_chassis_inspector():
                     st.markdown("**No detected components**")
 
 def main():
-    st.set_page_config(page_title="Chassis Inspector", layout="wide", page_icon="🔧")
-    with st.sidebar:
-        page = st.radio("Select Page", ["Chassis Inspector", "Model Metrics"])
+    # Now that the page config is set, we can safely call other Streamlit commands.
+    download_model()
+    
+    st.sidebar.title("Chassis Inspector")
+    page = st.sidebar.radio("Select Page", ["Chassis Inspector", "Model Metrics"])
     
     if page == "Chassis Inspector":
         show_chassis_inspector()
